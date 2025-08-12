@@ -1,5 +1,7 @@
 github.com/InsulaLabs/insi v0.0.0-20250812215022-08700c00745c h1:Ldk0kpQYvO+6i7NJsey+uFYPxX1m/hqBZocncleQjYw=
 github.com/InsulaLabs/insi v0.0.0-20250812215022-08700c00745c/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
+github.com/InsulaLabs/insi v0.0.0-20250812223925-4ccf8b77f11c h1:zBuzSoFgd4BodmLQrerdMRSe2ctPyPpszJn9ovvYgqQ=
+github.com/InsulaLabs/insi v0.0.0-20250812223925-4ccf8b77f11c/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
 github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
 github.com/fatih/color v1.18.0/go.mod h1:4FelSpRwEGDpQ12mAdzqdOukCy4u8WUtOY6lkT/6HfU=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=
