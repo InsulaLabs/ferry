@@ -4,40 +4,40 @@
 
 ### Linux (AMD64)
 ```bash
-curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-linux-amd64.alpha-rc.0-r0
+curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-linux-amd64.alpha-rc.1-r0
 chmod +x ferry
 sudo mv ferry /usr/local/bin/
 ```
 
 ### Linux (ARM64)
 ```bash
-curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-linux-arm64.alpha-rc.0-r0
+curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-linux-arm64.alpha-rc.1-r0
 chmod +x ferry
 sudo mv ferry /usr/local/bin/
 ```
 
 ### macOS (Intel)
 ```bash
-curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-darwin-amd64.alpha-rc.0-r0
+curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-darwin-amd64.alpha-rc.1-r0
 chmod +x ferry
 sudo mv ferry /usr/local/bin/
 ```
 
 ### macOS (Apple Silicon)
 ```bash
-curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-darwin-arm64.alpha-rc.0-r0
+curl -L -o ferry https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-darwin-arm64.alpha-rc.1-r0
 chmod +x ferry
 sudo mv ferry /usr/local/bin/
 ```
 
 ### Windows (AMD64)
 ```powershell
-curl -L -o ferry.exe https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-windows-amd64.alpha-rc.0-r0.exe
+curl -L -o ferry.exe https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-windows-amd64.alpha-rc.1-r0.exe
 ```
 
 ### Windows (ARM64)
 ```powershell
-curl -L -o ferry.exe https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.0-r0/ferry-windows-arm64.alpha-rc.0-r0.exe
+curl -L -o ferry.exe https://github.com/InsulaLabs/ferry/releases/download/alpha-rc.1-r0/ferry-windows-arm64.alpha-rc.1-r0.exe
 ```
 
 ## Usage
