@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/InsulaLabs/ferry/internal/core"
 	"github.com/InsulaLabs/insi/db/models"
-	"github.com/InsulaLabs/insi/ferry"
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
 )
@@ -64,7 +64,7 @@ func main() {
 	}
 
 	// Convert to ferry config
-	ferryConfig := &ferry.Config{
+	ferryConfig := &core.Config{
 		ApiKey:     os.Getenv(cfg.ApiKeyEnv),
 		Endpoints:  cfg.Endpoints,
 		SkipVerify: cfg.SkipVerify,
@@ -91,7 +91,7 @@ func main() {
 	}
 
 	// Create ferry instance
-	f, err := ferry.New(logger, ferryConfig)
+	f, err := core.New(logger, ferryConfig)
 	if err != nil {
 		logger.Error("Failed to create ferry instance", "error", err)
 		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
@@ -292,6 +292,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Value store operations\n")
 	fmt.Fprintf(os.Stderr, "  ferry values set user:123 '{\"name\":\"Alice\",\"age\":30}'\n")
+	fmt.Fprintf(os.Stderr, "  ferry values set user:123 'Alice'\n")
 	fmt.Fprintf(os.Stderr, "  ferry values get user:123\n")
 	fmt.Fprintf(os.Stderr, "  ferry values setnx lock:process \"locked\"\n")
 	fmt.Fprintf(os.Stderr, "  ferry values bump counter 1\n")
@@ -321,7 +322,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  - All operations use the ferry package which provides automatic retries and error handling\n")
 }
 
-func handlePing(f *ferry.Ferry, args []string) {
+func handlePing(f *core.Ferry, args []string) {
 	if len(args) != 0 {
 		logger.Error("ping: does not take arguments")
 		printUsage()
@@ -337,7 +338,7 @@ func handlePing(f *ferry.Ferry, args []string) {
 	color.HiGreen("OK - Ping successful")
 }
 
-func handleValues(f *ferry.Ferry, args []string) {
+func handleValues(f *core.Ferry, args []string) {
 	if len(args) < 1 {
 		logger.Error("values: requires <sub-command> [args...]")
 		printUsage()
@@ -345,7 +346,7 @@ func handleValues(f *ferry.Ferry, args []string) {
 	}
 
 	ctx := context.Background()
-	vc := ferry.GetValueController[string](f, "")
+	vc := core.GetValueController[string](f, "")
 
 	subCommand := args[0]
 	subArgs := args[1:]
@@ -360,7 +361,7 @@ func handleValues(f *ferry.Ferry, args []string) {
 		key := subArgs[0]
 		value, err := vc.Get(ctx, key)
 		if err != nil {
-			if err == ferry.ErrKeyNotFound {
+			if err == core.ErrKeyNotFound {
 				fmt.Fprintf(os.Stderr, "%s Key '%s' not found.\n", color.RedString("Error:"), color.CyanString(key))
 			} else {
 				logger.Error("Get failed", "key", key, "error", err)
@@ -394,7 +395,7 @@ func handleValues(f *ferry.Ferry, args []string) {
 		key, value := subArgs[0], subArgs[1]
 		err := vc.SetNX(ctx, key, value)
 		if err != nil {
-			if err == ferry.ErrConflict {
+			if err == core.ErrConflict {
 				fmt.Fprintf(os.Stderr, "%s Key '%s' already exists.\n", color.RedString("Conflict:"), color.CyanString(key))
 			} else {
 				logger.Error("SetNX failed", "key", key, "error", err)
@@ -428,7 +429,7 @@ func handleValues(f *ferry.Ferry, args []string) {
 		key, oldValue, newValue := subArgs[0], subArgs[1], subArgs[2]
 		err := vc.CompareAndSwap(ctx, key, oldValue, newValue)
 		if err != nil {
-			if err == ferry.ErrConflict {
+			if err == core.ErrConflict {
 				fmt.Fprintf(os.Stderr, "%s Compare-and-swap failed for key '%s'.\n", color.RedString("Conflict:"), color.CyanString(key))
 			} else {
 				logger.Error("CAS failed", "key", key, "error", err)
@@ -469,7 +470,7 @@ func handleValues(f *ferry.Ferry, args []string) {
 	}
 }
 
-func handleValuesIterate(ctx context.Context, vc ferry.ValueController[string], args []string) {
+func handleValuesIterate(ctx context.Context, vc core.ValueController[string], args []string) {
 	if len(args) < 1 {
 		logger.Error("values iterate: requires <prefix> [offset] [limit]")
 		printUsage()
@@ -496,7 +497,7 @@ func handleValuesIterate(ctx context.Context, vc ferry.ValueController[string], 
 
 	results, err := vc.IterateByPrefix(ctx, prefix, offset, limit)
 	if err != nil {
-		if err == ferry.ErrKeyNotFound {
+		if err == core.ErrKeyNotFound {
 			color.HiRed("No keys found.")
 		} else {
 			logger.Error("Iterate failed", "prefix", prefix, "error", err)
@@ -509,7 +510,7 @@ func handleValuesIterate(ctx context.Context, vc ferry.ValueController[string], 
 	}
 }
 
-func handleCache(f *ferry.Ferry, args []string) {
+func handleCache(f *core.Ferry, args []string) {
 	if len(args) < 1 {
 		logger.Error("cache: requires <sub-command> [args...]")
 		printUsage()
@@ -517,7 +518,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 	}
 
 	ctx := context.Background()
-	cc := ferry.GetCacheController[string](f, "")
+	cc := core.GetCacheController[string](f, "")
 
 	subCommand := args[0]
 	subArgs := args[1:]
@@ -532,7 +533,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 		key := subArgs[0]
 		value, err := cc.Get(ctx, key)
 		if err != nil {
-			if err == ferry.ErrKeyNotFound {
+			if err == core.ErrKeyNotFound {
 				fmt.Fprintf(os.Stderr, "%s Key '%s' not found in cache.\n", color.RedString("Error:"), color.CyanString(key))
 			} else {
 				logger.Error("Cache get failed", "key", key, "error", err)
@@ -566,7 +567,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 		key, value := subArgs[0], subArgs[1]
 		err := cc.SetNX(ctx, key, value)
 		if err != nil {
-			if err == ferry.ErrConflict {
+			if err == core.ErrConflict {
 				fmt.Fprintf(os.Stderr, "%s Key '%s' already exists in cache.\n", color.RedString("Conflict:"), color.CyanString(key))
 			} else {
 				logger.Error("Cache SetNX failed", "key", key, "error", err)
@@ -585,7 +586,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 		key := subArgs[0]
 		err := cc.Delete(ctx, key)
 		if err != nil {
-			if err == ferry.ErrKeyNotFound {
+			if err == core.ErrKeyNotFound {
 				fmt.Fprintf(os.Stderr, "%s Key '%s' not found in cache. Nothing to delete.\n", color.YellowString("Warning:"), color.CyanString(key))
 			} else {
 				logger.Error("Cache delete failed", "key", key, "error", err)
@@ -604,7 +605,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 		key, oldValue, newValue := subArgs[0], subArgs[1], subArgs[2]
 		err := cc.CompareAndSwap(ctx, key, oldValue, newValue)
 		if err != nil {
-			if err == ferry.ErrConflict {
+			if err == core.ErrConflict {
 				fmt.Fprintf(os.Stderr, "%s Cache compare-and-swap failed for key '%s'.\n", color.RedString("Conflict:"), color.CyanString(key))
 			} else {
 				logger.Error("Cache CAS failed", "key", key, "error", err)
@@ -624,7 +625,7 @@ func handleCache(f *ferry.Ferry, args []string) {
 	}
 }
 
-func handleCacheIterate(ctx context.Context, cc ferry.CacheController[string], args []string) {
+func handleCacheIterate(ctx context.Context, cc core.CacheController[string], args []string) {
 	if len(args) < 1 {
 		logger.Error("cache iterate: requires <prefix> [offset] [limit]")
 		printUsage()
@@ -651,7 +652,7 @@ func handleCacheIterate(ctx context.Context, cc ferry.CacheController[string], a
 
 	results, err := cc.IterateByPrefix(ctx, prefix, offset, limit)
 	if err != nil {
-		if err == ferry.ErrKeyNotFound {
+		if err == core.ErrKeyNotFound {
 			color.HiRed("No keys found in cache.")
 		} else {
 			logger.Error("Cache iterate failed", "prefix", prefix, "error", err)
@@ -664,7 +665,7 @@ func handleCacheIterate(ctx context.Context, cc ferry.CacheController[string], a
 	}
 }
 
-func handleEvents(f *ferry.Ferry, args []string) {
+func handleEvents(f *core.Ferry, args []string) {
 	if len(args) < 1 {
 		logger.Error("events: requires <sub-command> [args...]")
 		printUsage()
@@ -672,7 +673,7 @@ func handleEvents(f *ferry.Ferry, args []string) {
 	}
 
 	ctx := context.Background()
-	events := ferry.GetEvents(f)
+	events := core.GetEvents(f)
 
 	subCommand := args[0]
 	subArgs := args[1:]
@@ -740,7 +741,7 @@ func handleEvents(f *ferry.Ferry, args []string) {
 		if err != nil {
 			if err == context.Canceled {
 				logger.Info("Subscription cancelled gracefully.", "topic", color.CyanString(topic))
-			} else if err == ferry.ErrSubscriberLimitExceeded {
+			} else if err == core.ErrSubscriberLimitExceeded {
 				fmt.Fprintf(os.Stderr, "%s Subscriber limit exceeded\n", color.RedString("Error:"))
 				os.Exit(1)
 			} else {
@@ -779,7 +780,7 @@ func handleEvents(f *ferry.Ferry, args []string) {
 	}
 }
 
-func handleBlob(f *ferry.Ferry, args []string) {
+func handleBlob(f *core.Ferry, args []string) {
 	if len(args) < 1 {
 		logger.Error("blob: requires <sub-command> [args...]")
 		printUsage()
@@ -787,7 +788,7 @@ func handleBlob(f *ferry.Ferry, args []string) {
 	}
 
 	ctx := context.Background()
-	bc := ferry.GetBlobController(f)
+	bc := core.GetBlobController(f)
 
 	subCommand := args[0]
 	subArgs := args[1:]
@@ -840,7 +841,7 @@ func handleBlob(f *ferry.Ferry, args []string) {
 
 			reader, err := bc.Download(ctx, key)
 			if err != nil {
-				if err == ferry.ErrKeyNotFound {
+				if err == core.ErrKeyNotFound {
 					fmt.Fprintf(os.Stderr, "%s Blob key '%s' not found.\n", color.RedString("Error:"), color.CyanString(key))
 				} else {
 					logger.Error("Download failed", "key", key, "error", err)
@@ -868,7 +869,7 @@ func handleBlob(f *ferry.Ferry, args []string) {
 		} else {
 			reader, err := bc.Download(ctx, key)
 			if err != nil {
-				if err == ferry.ErrKeyNotFound {
+				if err == core.ErrKeyNotFound {
 					fmt.Fprintf(os.Stderr, "%s Blob key '%s' not found.\n", color.RedString("Error:"), color.CyanString(key))
 				} else {
 					logger.Error("Download failed", "key", key, "error", err)
@@ -911,7 +912,7 @@ func handleBlob(f *ferry.Ferry, args []string) {
 	}
 }
 
-func handleBlobIterate(ctx context.Context, bc ferry.BlobController, args []string) {
+func handleBlobIterate(ctx context.Context, bc core.BlobController, args []string) {
 	if len(args) < 1 {
 		logger.Error("blob iterate: requires <prefix> [offset] [limit]")
 		printUsage()
@@ -938,7 +939,7 @@ func handleBlobIterate(ctx context.Context, bc ferry.BlobController, args []stri
 
 	results, err := bc.IterateByPrefix(ctx, prefix, offset, limit)
 	if err != nil {
-		if err == ferry.ErrKeyNotFound {
+		if err == core.ErrKeyNotFound {
 			color.HiRed("No blob keys found.")
 		} else {
 			logger.Error("Iterate failed", "prefix", prefix, "error", err)
