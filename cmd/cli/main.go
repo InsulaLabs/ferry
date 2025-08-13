@@ -222,9 +222,6 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("values"), color.CyanString("set"), color.CyanString("<key>"), color.CyanString("<value>"))
 	fmt.Fprintf(os.Stderr, "    Store a value with the given key\n")
 
-	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("values"), color.CyanString("rawset"), color.CyanString("<key>"), color.CyanString("<value>"))
-	fmt.Fprintf(os.Stderr, "    Store a raw string value with the given key (no JSON marshaling)\n")
-
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("values"), color.CyanString("setnx"), color.CyanString("<key>"), color.CyanString("<value>"))
 	fmt.Fprintf(os.Stderr, "    Set value only if key doesn't exist (set-if-not-exists)\n")
 
@@ -247,9 +244,6 @@ func printUsage() {
 
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("cache"), color.CyanString("set"), color.CyanString("<key>"), color.CyanString("<value>"))
 	fmt.Fprintf(os.Stderr, "    Store a value in cache with the given key\n")
-
-	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("cache"), color.CyanString("rawset"), color.CyanString("<key>"), color.CyanString("<value>"))
-	fmt.Fprintf(os.Stderr, "    Store a raw string value in cache with the given key (no JSON marshaling)\n")
 
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("cache"), color.CyanString("setnx"), color.CyanString("<key>"), color.CyanString("<value>"))
 	fmt.Fprintf(os.Stderr, "    Set value only if key doesn't exist (set-if-not-exists)\n")
@@ -298,7 +292,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Value store operations\n")
 	fmt.Fprintf(os.Stderr, "  ferry values set user:123 '{\"name\":\"Alice\",\"age\":30}'\n")
-	fmt.Fprintf(os.Stderr, "  ferry values rawset user:123 'Alice'\n")
+	fmt.Fprintf(os.Stderr, "  ferry values set user:123 'Alice'\n")
 	fmt.Fprintf(os.Stderr, "  ferry values get user:123\n")
 	fmt.Fprintf(os.Stderr, "  ferry values setnx lock:process \"locked\"\n")
 	fmt.Fprintf(os.Stderr, "  ferry values bump counter 1\n")
@@ -306,7 +300,6 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Cache operations\n")
 	fmt.Fprintf(os.Stderr, "  ferry cache set session:abc \"active\"\n")
-	fmt.Fprintf(os.Stderr, "  ferry cache rawset session:abc \"active\"\n")
 	fmt.Fprintf(os.Stderr, "  ferry cache setnx lock:resource \"locked\"\n")
 	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Event pub/sub\n")
@@ -388,21 +381,6 @@ func handleValues(f *core.Ferry, args []string) {
 		err := vc.Set(ctx, key, value)
 		if err != nil {
 			logger.Error("Set failed", "key", key, "error", err)
-			fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
-			os.Exit(1)
-		}
-		color.HiGreen("OK")
-
-	case "rawset":
-		if len(subArgs) != 2 {
-			logger.Error("values rawset: requires <key> <value>")
-			printUsage()
-			os.Exit(1)
-		}
-		key, value := subArgs[0], subArgs[1]
-		err := vc.RawSet(ctx, key, value)
-		if err != nil {
-			logger.Error("RawSet failed", "key", key, "error", err)
 			fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
 			os.Exit(1)
 		}
@@ -575,21 +553,6 @@ func handleCache(f *core.Ferry, args []string) {
 		err := cc.Set(ctx, key, value)
 		if err != nil {
 			logger.Error("Cache set failed", "key", key, "error", err)
-			fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
-			os.Exit(1)
-		}
-		color.HiGreen("OK")
-
-	case "rawset":
-		if len(subArgs) != 2 {
-			logger.Error("cache rawset: requires <key> <value>")
-			printUsage()
-			os.Exit(1)
-		}
-		key, value := subArgs[0], subArgs[1]
-		err := cc.RawSet(ctx, key, value)
-		if err != nil {
-			logger.Error("Cache RawSet failed", "key", key, "error", err)
 			fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
 			os.Exit(1)
 		}

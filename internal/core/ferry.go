@@ -71,11 +71,11 @@ func (f *Ferry) Ping(attempts int, cooldown time.Duration) error {
 		lastErr)
 }
 
-func GetValueController[T any](f *Ferry, defaultT T) ValueController[T] {
+func GetValueController[T ~string](f *Ferry, defaultT T) ValueController[T] {
 	return NewValueController(defaultT, f.client, f.logger)
 }
 
-func GetCacheController[T any](f *Ferry, defaultT T) CacheController[T] {
+func GetCacheController[T ~string](f *Ferry, defaultT T) CacheController[T] {
 	return NewCacheController(defaultT, f.client, f.logger)
 }
 
