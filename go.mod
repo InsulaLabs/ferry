@@ -1,4 +1,4 @@
-module github.com/Insulalabs/ferry
+module github.com/InsulaLabs/ferry
 
 go 1.24.2
 

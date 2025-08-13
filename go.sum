@@ -1,7 +1,3 @@
-github.com/InsulaLabs/insi v0.0.0-20250812215022-08700c00745c h1:Ldk0kpQYvO+6i7NJsey+uFYPxX1m/hqBZocncleQjYw=
-github.com/InsulaLabs/insi v0.0.0-20250812215022-08700c00745c/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
-github.com/InsulaLabs/insi v0.0.0-20250812223925-4ccf8b77f11c h1:zBuzSoFgd4BodmLQrerdMRSe2ctPyPpszJn9ovvYgqQ=
-github.com/InsulaLabs/insi v0.0.0-20250812223925-4ccf8b77f11c/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
 github.com/InsulaLabs/insi v0.0.0-20250812233837-d29b32cd4529 h1:M4VzrPKVhubZJV3LNRxe/Z1JlOjC+GDUOLHjnSytHc8=
 github.com/InsulaLabs/insi v0.0.0-20250812233837-d29b32cd4529/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
 github.com/fatih/color v1.18.0 h1:S8gINlzdQ840/4pfAwic/ZE0djQEH3wM94VfqLTZcOM=
