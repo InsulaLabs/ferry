@@ -3,7 +3,7 @@ module github.com/InsulaLabs/ferry
 go 1.24.2
 
 require (
-	github.com/InsulaLabs/insi v0.0.0-20250812233837-d29b32cd4529
+	github.com/InsulaLabs/insi v0.0.0-20250812222516-04a045a953f3
 	github.com/fatih/color v1.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
