@@ -20,10 +20,6 @@
 	Note:
 		The "callable" that is given to the connector will receive all hangup events,
 		even ones that they initiated, not just received.
-
-
-
-
 */
 
 package tekp2p
@@ -36,7 +32,7 @@ import (
 	"log/slog"
 	"net"
 
-	"github.com/InsulaLabs/ferry/remote/p2p"
+	"github.com/InsulaLabs/ferry/pkg/p2p"
 	"github.com/google/uuid"
 )
 
@@ -323,20 +319,10 @@ func (x *PeerConnector) Call(ctx context.Context, req *CallRequest) (*Call, erro
 }
 
 func (x *Call) Transmit(p []byte) (n int, err error) {
-
-	// NOTE: Here we could insert a connection bridge
-	// and have a stream copied off for logging / recording
-	// purposes.
-
 	return x.conn.Write(p)
 }
 
 func (x *Call) Receive(p []byte) (n int, err error) {
-
-	// NOTE: Here we could insert a connection bridge
-	// and have a stream copied off for logging / recording
-	// purposes.
-
 	return x.conn.Read(p)
 }
 

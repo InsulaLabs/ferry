@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/InsulaLabs/ferry/internal/core"
+	"github.com/InsulaLabs/ferry/pkg/core"
 )
 
-// CacheSignalingClient uses ferry cache store for WebRTC signaling
 type CacheSignalingClient struct {
 	cacheController core.CacheController[string]
 	logger          *slog.Logger
@@ -53,7 +52,6 @@ func (c *CacheSignalingClient) makeAnswerKey(sessionID string) string {
 	return fmt.Sprintf("p2p:answer:%s", sessionID)
 }
 
-// RegisterOffer stores the WebRTC offer in cache
 func (c *CacheSignalingClient) RegisterOffer(ctx context.Context, sessionID string, data *SignalingData) error {
 	key := c.makeOfferKey(sessionID)
 	jsonData, err := json.Marshal(data)
@@ -64,7 +62,6 @@ func (c *CacheSignalingClient) RegisterOffer(ctx context.Context, sessionID stri
 	return c.cacheController.Set(ctx, key, string(jsonData))
 }
 
-// WaitForAnswer polls cache for the WebRTC answer
 func (c *CacheSignalingClient) WaitForAnswer(ctx context.Context, sessionID string) (*SignalingData, error) {
 	key := c.makeAnswerKey(sessionID)
 	timeoutCtx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -81,12 +78,11 @@ func (c *CacheSignalingClient) WaitForAnswer(ctx context.Context, sessionID stri
 			value, err := c.cacheController.Get(timeoutCtx, key)
 			if err != nil {
 				if err == core.ErrKeyNotFound {
-					continue // Keep polling
+					continue
 				}
 				return nil, fmt.Errorf("failed to get answer: %w", err)
 			}
 
-			// Skip empty or whitespace-only values (key exists but value not fully written)
 			if value == "" || len(strings.TrimSpace(value)) == 0 {
 				c.logger.Debug("answer key exists but value is empty, continuing to poll", "key", key)
 				continue
@@ -99,10 +95,9 @@ func (c *CacheSignalingClient) WaitForAnswer(ctx context.Context, sessionID stri
 					previewLen = len(value)
 				}
 				c.logger.Warn("failed to unmarshal answer data, continuing to poll", "error", err, "value_length", len(value), "value_preview", value[:previewLen])
-				continue // Keep polling if JSON is invalid
+				continue
 			}
 
-			// Clean up the answer from cache
 			if err := c.cacheController.Delete(timeoutCtx, key); err != nil {
 				c.logger.Warn("failed to clean up answer from cache", "error", err)
 			}
@@ -112,7 +107,6 @@ func (c *CacheSignalingClient) WaitForAnswer(ctx context.Context, sessionID stri
 	}
 }
 
-// GetOffer retrieves the WebRTC offer from cache
 func (c *CacheSignalingClient) GetOffer(ctx context.Context, sessionID string) (*SignalingData, error) {
 	key := c.makeOfferKey(sessionID)
 	value, err := c.cacheController.Get(ctx, key)
@@ -128,7 +122,6 @@ func (c *CacheSignalingClient) GetOffer(ctx context.Context, sessionID string) (
 	return &data, nil
 }
 
-// SendAnswer stores the WebRTC answer in cache
 func (c *CacheSignalingClient) SendAnswer(ctx context.Context, sessionID string, data *SignalingData) error {
 	key := c.makeAnswerKey(sessionID)
 	jsonData, err := json.Marshal(data)
@@ -139,7 +132,6 @@ func (c *CacheSignalingClient) SendAnswer(ctx context.Context, sessionID string,
 	return c.cacheController.Set(ctx, key, string(jsonData))
 }
 
-// WaitForOffer polls cache for the WebRTC offer
 func (c *CacheSignalingClient) WaitForOffer(ctx context.Context, sessionID string) (*SignalingData, error) {
 	key := c.makeOfferKey(sessionID)
 	timeoutCtx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -156,12 +148,11 @@ func (c *CacheSignalingClient) WaitForOffer(ctx context.Context, sessionID strin
 			value, err := c.cacheController.Get(timeoutCtx, key)
 			if err != nil {
 				if err == core.ErrKeyNotFound {
-					continue // Keep polling
+					continue
 				}
 				return nil, fmt.Errorf("failed to get offer: %w", err)
 			}
 
-			// Skip empty or whitespace-only values (key exists but value not fully written)
 			if value == "" || len(strings.TrimSpace(value)) == 0 {
 				c.logger.Debug("offer key exists but value is empty, continuing to poll", "key", key)
 				continue
@@ -174,7 +165,7 @@ func (c *CacheSignalingClient) WaitForOffer(ctx context.Context, sessionID strin
 					previewLen = len(value)
 				}
 				c.logger.Warn("failed to unmarshal offer data, continuing to poll", "error", err, "value_length", len(value), "value_preview", value[:previewLen])
-				continue // Keep polling if JSON is invalid
+				continue
 			}
 
 			return &data, nil
@@ -182,7 +173,6 @@ func (c *CacheSignalingClient) WaitForOffer(ctx context.Context, sessionID strin
 	}
 }
 
-// CleanupOffer removes the offer signaling data for a session
 func (c *CacheSignalingClient) CleanupOffer(ctx context.Context, sessionID string) {
 	offerKey := c.makeOfferKey(sessionID)
 	if err := c.cacheController.Delete(ctx, offerKey); err != nil {
@@ -190,7 +180,6 @@ func (c *CacheSignalingClient) CleanupOffer(ctx context.Context, sessionID strin
 	}
 }
 
-// CleanupAnswer removes the answer signaling data for a session
 func (c *CacheSignalingClient) CleanupAnswer(ctx context.Context, sessionID string) {
 	answerKey := c.makeAnswerKey(sessionID)
 	if err := c.cacheController.Delete(ctx, answerKey); err != nil {
@@ -198,7 +187,6 @@ func (c *CacheSignalingClient) CleanupAnswer(ctx context.Context, sessionID stri
 	}
 }
 
-// Cleanup removes all signaling data for a session
 func (c *CacheSignalingClient) Cleanup(ctx context.Context, sessionID string) {
 	c.CleanupOffer(ctx, sessionID)
 	c.CleanupAnswer(ctx, sessionID)

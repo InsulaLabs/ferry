@@ -12,21 +12,19 @@ import (
 	"path/filepath"
 )
 
-// FileTransferProtocol handles file transfer over WebRTC data channels
 type FileTransferProtocol struct {
 	conn   *Conn
 	logger *slog.Logger
 }
 
-// FileMetadata contains information about the file being transferred
 type FileMetadata struct {
 	Filename string `json:"filename"`
 	Size     int64  `json:"size"`
-	Hash     string `json:"hash"` // SHA256 hash of the file
+	Hash     string `json:"hash"`
 }
 
 type TransferMessage struct {
-	Type     string        `json:"type"` // "metadata" or "data"
+	Type     string        `json:"type"`
 	Metadata *FileMetadata `json:"metadata,omitempty"`
 	Data     []byte        `json:"data,omitempty"`
 	Offset   int64         `json:"offset,omitempty"`
@@ -52,16 +50,13 @@ func NewFileTransferProtocol(conn *Conn, logger *slog.Logger) *FileTransferProto
 	}
 }
 
-// SendFile sends a file over the WebRTC connection
 func (ftp *FileTransferProtocol) SendFile(filePath string) error {
-	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	// Get file info
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("failed to stat file: %w", err)
@@ -69,14 +64,12 @@ func (ftp *FileTransferProtocol) SendFile(filePath string) error {
 
 	filename := filepath.Base(filePath)
 
-	// Calculate SHA256 hash
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return fmt.Errorf("failed to calculate file hash: %w", err)
 	}
 	hashString := hex.EncodeToString(hash.Sum(nil))
 
-	// Reset file position to beginning
 	if _, err := file.Seek(0, 0); err != nil {
 		return fmt.Errorf("failed to reset file position: %w", err)
 	}
@@ -89,12 +82,10 @@ func (ftp *FileTransferProtocol) SendFile(filePath string) error {
 
 	ftp.logger.Info("Starting file transfer", "filename", filename, "size", fileInfo.Size(), "hash", hashString[:16]+"...")
 
-	// Send metadata
 	if err := ftp.sendMetadata(metadata); err != nil {
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Send file data in chunks
 	buffer := make([]byte, ChunkSize)
 	var totalSent int64
 
@@ -105,10 +96,9 @@ func (ftp *FileTransferProtocol) SendFile(filePath string) error {
 		}
 
 		if n == 0 {
-			break // End of file
+			break
 		}
 
-		// Send data chunk
 		dataMsg := &TransferMessage{
 			Type:   MessageTypeData,
 			Data:   buffer[:n],
@@ -121,14 +111,12 @@ func (ftp *FileTransferProtocol) SendFile(filePath string) error {
 
 		totalSent += int64(n)
 
-		// Progress logging
-		if totalSent%(1024*1024) == 0 || totalSent == fileInfo.Size() { // Every MB or at completion
+		if totalSent%(1024*1024) == 0 || totalSent == fileInfo.Size() {
 			progress := float64(totalSent) / float64(fileInfo.Size()) * 100
 			ftp.logger.Info("Transfer progress", "sent", totalSent, "total", fileInfo.Size(), "progress", fmt.Sprintf("%.1f%%", progress))
 		}
 	}
 
-	// Send completion message
 	completeMsg := &TransferMessage{
 		Type: MessageTypeComplete,
 	}
@@ -140,7 +128,6 @@ func (ftp *FileTransferProtocol) SendFile(filePath string) error {
 	return nil
 }
 
-// ReceiveFile receives a file over the WebRTC connection and saves it to outputPath
 func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 	var metadata *FileMetadata
 	var outputFile *os.File
@@ -154,7 +141,7 @@ func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 	}()
 
 	for {
-		buffer := make([]byte, ChunkSize*2) // Buffer larger than chunk size
+		buffer := make([]byte, ChunkSize*2)
 		n, err := ftp.conn.Read(buffer)
 		if err != nil {
 			return fmt.Errorf("failed to read from connection: %w", err)
@@ -173,11 +160,8 @@ func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 			metadata = msg.Metadata
 			ftp.logger.Info("Received file metadata", "filename", metadata.Filename, "size", metadata.Size, "hash", metadata.Hash[:16]+"...")
 
-			// Initialize hash calculator
 			hasher = sha256.New()
 
-			// Create output file
-			// Create directory if it doesn't exist
 			dir := filepath.Dir(outputPath)
 			if dir != "." {
 				if err := os.MkdirAll(dir, 0755); err != nil {
@@ -199,14 +183,12 @@ func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 				return fmt.Errorf("failed to write to output file: %w", err)
 			}
 
-			// Update hash
 			if hasher != nil {
 				hasher.Write(msg.Data)
 			}
 
 			receivedSize += int64(len(msg.Data))
 
-			// Progress logging
 			if metadata != nil && (receivedSize%(1024*1024) == 0 || receivedSize == metadata.Size) {
 				progress := float64(receivedSize) / float64(metadata.Size) * 100
 				ftp.logger.Info("Receive progress", "received", receivedSize, "total", metadata.Size, "progress", fmt.Sprintf("%.1f%%", progress))
@@ -226,7 +208,6 @@ func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 					return fmt.Errorf("received size (%d) doesn't match expected size (%d)", receivedSize, metadata.Size)
 				}
 
-				// Verify hash
 				if hasher != nil {
 					receivedHash := hex.EncodeToString(hasher.Sum(nil))
 					if receivedHash != metadata.Hash {
@@ -269,7 +250,6 @@ func (ftp *FileTransferProtocol) sendMessage(msg *TransferMessage) error {
 	return nil
 }
 
-// SendError sends an error message to the other side
 func (ftp *FileTransferProtocol) SendError(errorMsg string) error {
 	msg := &TransferMessage{
 		Type: MessageTypeError,

@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -9,21 +10,21 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// Conn implements net.Conn over WebRTC
 type Conn struct {
-	logger      *slog.Logger
-	dataChannel *webrtc.DataChannel
-	peerConn    *webrtc.PeerConnection
-	readChan    chan []byte
-	isConnected chan struct{}
-	dcReady     chan struct{}
-	// For ICE candidate gathering
+	logger       *slog.Logger
+	dataChannel  *webrtc.DataChannel
+	peerConn     *webrtc.PeerConnection
+	readChan     chan []byte
+	shutdownChan chan struct{}
+	closeOnce    sync.Once
+	isConnected  chan struct{}
+	dcReady      chan struct{}
+
 	pendingCandidates []*webrtc.ICECandidate
 	candidatesMux     sync.Mutex
 	iceDone           chan struct{}
 }
 
-// SignalingData contains WebRTC session info
 type SignalingData struct {
 	SDP        string                    `json:"sdp,omitempty"`
 	Candidates []webrtc.ICECandidateInit `json:"candidates,omitempty"`
@@ -55,12 +56,13 @@ func newConn(logger *slog.Logger) (*Conn, error) {
 	}
 
 	conn := &Conn{
-		logger:      logger,
-		peerConn:    peerConn,
-		readChan:    make(chan []byte, 100),
-		isConnected: make(chan struct{}),
-		dcReady:     make(chan struct{}),
-		iceDone:     make(chan struct{}),
+		logger:       logger,
+		peerConn:     peerConn,
+		readChan:     make(chan []byte, 100),
+		shutdownChan: make(chan struct{}),
+		isConnected:  make(chan struct{}),
+		dcReady:      make(chan struct{}),
+		iceDone:      make(chan struct{}),
 	}
 
 	peerConn.OnICECandidate(func(c *webrtc.ICECandidate) {
@@ -96,8 +98,12 @@ func newConn(logger *slog.Logger) (*Conn, error) {
 // Implement net.Conn interface
 func (c *Conn) Read(b []byte) (n int, err error) {
 	<-c.dcReady
-	data := <-c.readChan
-	return copy(b, data), nil
+	select {
+	case data := <-c.readChan:
+		return copy(b, data), nil
+	case <-c.shutdownChan:
+		return 0, io.EOF
+	}
 }
 
 func (c *Conn) Write(b []byte) (n int, err error) {
@@ -110,10 +116,15 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Conn) Close() error {
-	if c.dataChannel != nil {
-		c.dataChannel.Close()
-	}
-	return c.peerConn.Close()
+	var err error
+	c.closeOnce.Do(func() {
+		close(c.shutdownChan)
+		if c.dataChannel != nil {
+			c.dataChannel.Close()
+		}
+		err = c.peerConn.Close()
+	})
+	return err
 }
 
 func (c *Conn) LocalAddr() net.Addr  { return nil }
@@ -147,14 +158,12 @@ func (c *Conn) setupDataChannel(d *webrtc.DataChannel) {
 	})
 }
 
-// newOffer creates a new WebRTC connection offer
 func newOffer(logger *slog.Logger) (*Conn, *SignalingData, error) {
 	conn, err := newConn(logger)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Create data channel
 	dataChannel, err := conn.peerConn.CreateDataChannel("data", nil)
 	if err != nil {
 		conn.Close()
@@ -162,7 +171,6 @@ func newOffer(logger *slog.Logger) (*Conn, *SignalingData, error) {
 	}
 	conn.setupDataChannel(dataChannel)
 
-	// Create offer
 	offer, err := conn.peerConn.CreateOffer(nil)
 	if err != nil {
 		conn.Close()
@@ -175,7 +183,6 @@ func newOffer(logger *slog.Logger) (*Conn, *SignalingData, error) {
 		return nil, nil, err
 	}
 
-	// Wait for ICE gathering
 	select {
 	case <-conn.iceDone:
 	case <-time.After(2 * time.Second): // fallback timeout
@@ -195,19 +202,16 @@ func newOffer(logger *slog.Logger) (*Conn, *SignalingData, error) {
 	return conn, sigData, nil
 }
 
-// newAnswer creates a new WebRTC connection answer
 func newAnswer(logger *slog.Logger, offerData *SignalingData) (*Conn, *SignalingData, error) {
 	conn, err := newConn(logger)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Handle incoming data channels
 	conn.peerConn.OnDataChannel(func(d *webrtc.DataChannel) {
 		conn.setupDataChannel(d)
 	})
 
-	// Set the remote description
 	offer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  offerData.SDP,
@@ -219,7 +223,6 @@ func newAnswer(logger *slog.Logger, offerData *SignalingData) (*Conn, *Signaling
 		return nil, nil, err
 	}
 
-	// Add ICE candidates
 	for _, candidate := range offerData.Candidates {
 		err = conn.peerConn.AddICECandidate(candidate)
 		if err != nil {
@@ -228,7 +231,6 @@ func newAnswer(logger *slog.Logger, offerData *SignalingData) (*Conn, *Signaling
 		}
 	}
 
-	// Create answer
 	answer, err := conn.peerConn.CreateAnswer(nil)
 	if err != nil {
 		conn.Close()
@@ -241,7 +243,6 @@ func newAnswer(logger *slog.Logger, offerData *SignalingData) (*Conn, *Signaling
 		return nil, nil, err
 	}
 
-	// Wait for ICE gathering
 	select {
 	case <-conn.iceDone:
 	case <-time.After(2 * time.Second): // fallback timeout
@@ -261,7 +262,6 @@ func newAnswer(logger *slog.Logger, offerData *SignalingData) (*Conn, *Signaling
 	return conn, sigData, nil
 }
 
-// AcceptAnswer accepts an answer to complete the WebRTC connection
 func (c *Conn) AcceptAnswer(answerData *SignalingData) error {
 	answer := webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer,
@@ -273,7 +273,6 @@ func (c *Conn) AcceptAnswer(answerData *SignalingData) error {
 		return err
 	}
 
-	// Add ICE candidates
 	for _, candidate := range answerData.Candidates {
 		err = c.peerConn.AddICECandidate(candidate)
 		if err != nil {
@@ -289,12 +288,10 @@ func (c *Conn) AcceptAnswer(answerData *SignalingData) error {
 	return nil
 }
 
-// Offer creates a new WebRTC connection offer
 func Offer(logger *slog.Logger) (*Conn, *SignalingData, error) {
 	return newOffer(logger)
 }
 
-// Answer creates a new WebRTC connection answer
 func Answer(logger *slog.Logger, offerData *SignalingData) (*Conn, *SignalingData, error) {
 	return newAnswer(logger, offerData)
 }

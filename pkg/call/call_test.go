@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/InsulaLabs/ferry/remote/p2p"
+	"github.com/InsulaLabs/ferry/pkg/p2p"
 )
 
 const testString = "this is a test to check if the connection is working"

@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/InsulaLabs/ferry/internal/core"
-	"github.com/InsulaLabs/ferry/remote/p2p"
+	"github.com/InsulaLabs/ferry/pkg/core"
+	"github.com/InsulaLabs/ferry/pkg/p2p"
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
 )
@@ -140,26 +140,22 @@ func runReceiver(ctx context.Context, f *core.Ferry, sessionID, localAddr string
 
 	cacheController := core.GetCacheController[string](f, "")
 
-	// Create cache signaling client
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
 		Logger:          logger,
 	})
 
-	// Clean up any stale signaling data
 	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
 	signaling.Cleanup(ctx, sessionID)
 
 	logger.Info("Waiting for P2P connection", "session_id", sessionID)
 
-	// Create WebRTC offer
 	conn, offerData, err := p2p.Offer(logger.With("role", "receiver"))
 	if err != nil {
 		logger.Error("Failed to create WebRTC offer", "error", err)
 		os.Exit(1)
 	}
 
-	// Register offer in cache
 	if err := signaling.RegisterOffer(ctx, sessionID, offerData); err != nil {
 		logger.Error("Failed to register offer", "error", err)
 		os.Exit(1)
@@ -167,14 +163,12 @@ func runReceiver(ctx context.Context, f *core.Ferry, sessionID, localAddr string
 
 	logger.Info("Offer registered, waiting for answer", "session_id", sessionID)
 
-	// Wait for answer
 	answerData, err := signaling.WaitForAnswer(ctx, sessionID)
 	if err != nil {
 		logger.Error("Failed to get answer", "error", err)
 		os.Exit(1)
 	}
 
-	// Accept the answer
 	if err := conn.AcceptAnswer(answerData); err != nil {
 		logger.Error("Failed to accept answer", "error", err)
 		os.Exit(1)
@@ -182,16 +176,18 @@ func runReceiver(ctx context.Context, f *core.Ferry, sessionID, localAddr string
 
 	logger.Info("WebRTC connection established, starting HTTP proxy", "session_id", sessionID)
 
-	// Create HTTP proxy protocol
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
 	hpp := p2p.NewHTTPProxyProtocol(conn, logger)
 
-	// Start HTTP proxy server
-	if err := hpp.Serve(localAddr); err != nil {
+	if err := hpp.Serve(ctx, localAddr); err != nil {
 		logger.Error("HTTP proxy failed", "error", err)
 		os.Exit(1)
 	}
 
-	// Cleanup
 	signaling.Cleanup(ctx, sessionID)
 	conn.Close()
 }
@@ -201,33 +197,28 @@ func runSender(ctx context.Context, f *core.Ferry, sessionID, localAddr string, 
 
 	cacheController := core.GetCacheController[string](f, "")
 
-	// Create cache signaling client
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
 		Logger:          logger,
 	})
 
-	// Clean up any stale signaling data
 	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
 	signaling.Cleanup(ctx, sessionID)
 
 	logger.Info("Waiting for P2P offer", "session_id", sessionID)
 
-	// Wait for offer
 	offerData, err := signaling.WaitForOffer(ctx, sessionID)
 	if err != nil {
 		logger.Error("Failed to get offer", "error", err)
 		os.Exit(1)
 	}
 
-	// Create WebRTC answer
 	conn, answerData, err := p2p.Answer(logger.With("role", "sender"), offerData)
 	if err != nil {
 		logger.Error("Failed to create WebRTC answer", "error", err)
 		os.Exit(1)
 	}
 
-	// Send answer
 	if err := signaling.SendAnswer(ctx, sessionID, answerData); err != nil {
 		logger.Error("Failed to send answer", "error", err)
 		conn.Close()
@@ -236,16 +227,18 @@ func runSender(ctx context.Context, f *core.Ferry, sessionID, localAddr string, 
 
 	logger.Info("WebRTC connection established, starting HTTP proxy", "session_id", sessionID)
 
-	// Create HTTP proxy protocol
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
+
 	hpp := p2p.NewHTTPProxyProtocol(conn, logger)
 
-	// Start HTTP proxy client
-	if err := hpp.Connect(localAddr); err != nil {
+	if err := hpp.Connect(ctx, localAddr); err != nil {
 		logger.Error("HTTP proxy failed", "error", err)
 		os.Exit(1)
 	}
 
-	// Cleanup
 	signaling.Cleanup(ctx, sessionID)
 	conn.Close()
 }

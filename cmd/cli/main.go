@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/InsulaLabs/ferry/internal/core"
-	"github.com/InsulaLabs/ferry/remote/p2p"
+	"github.com/InsulaLabs/ferry/pkg/core"
+	"github.com/InsulaLabs/ferry/pkg/p2p"
 	"github.com/InsulaLabs/insi/db/models"
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
@@ -172,19 +172,16 @@ func loadConfig() (*FerryConfig, error) {
 		}
 	}
 
-	// Read config file
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	// Parse YAML
 	var cfg FerryConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", configPath, err)
 	}
 
-	// Set defaults
 	if cfg.ApiKeyEnv == "" {
 		cfg.ApiKeyEnv = "INSI_API_KEY"
 	}
@@ -704,7 +701,6 @@ func handleEvents(f *core.Ferry, args []string) {
 		topic := subArgs[0]
 		dataStr := subArgs[1]
 
-		// Try to parse as JSON, otherwise use as string
 		var dataToPublish any
 		var jsonData any
 		if err := json.Unmarshal([]byte(dataStr), &jsonData); err == nil {
@@ -730,7 +726,6 @@ func handleEvents(f *core.Ferry, args []string) {
 		}
 		topic := subArgs[0]
 
-		// Setup signal handling
 		sigCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
@@ -743,7 +738,6 @@ func handleEvents(f *core.Ferry, args []string) {
 			cancel()
 		}()
 
-		// Create handler
 		handler := func(event models.EventPayload) {
 			fmt.Printf("[%s] Received event on topic '%s': %+v\n",
 				time.Now().Format("15:04:05"),
@@ -819,7 +813,6 @@ func handleBlob(f *core.Ferry, args []string) {
 		key := subArgs[0]
 		filePath := subArgs[1]
 
-		// Open the file
 		file, err := os.Open(filePath)
 		if err != nil {
 			logger.Error("Failed to open file", "file", filePath, "error", err)
@@ -828,7 +821,6 @@ func handleBlob(f *core.Ferry, args []string) {
 		}
 		defer file.Close()
 
-		// Get file info for the filename
 		fileInfo, err := file.Stat()
 		if err != nil {
 			logger.Error("Failed to stat file", "file", filePath, "error", err)
@@ -1010,19 +1002,16 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 	ctx := context.Background()
 	cacheController := core.GetCacheController[string](f, "")
 
-	// Create cache signaling client
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
 		Logger:          logger,
 	})
 
-	// Clean up any stale signaling data for this session
 	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
 	signaling.Cleanup(ctx, sessionID)
 
 	logger.Info("Waiting for P2P connection", "session_id", sessionID)
 
-	// Create WebRTC offer
 	conn, offerData, err := p2p.Offer(logger.With("role", "receiver"))
 	if err != nil {
 		logger.Error("Failed to create WebRTC offer", "error", err)
@@ -1030,7 +1019,6 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 		os.Exit(1)
 	}
 
-	// Register offer in cache
 	if err := signaling.RegisterOffer(ctx, sessionID, offerData); err != nil {
 		logger.Error("Failed to register offer", "error", err)
 		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
@@ -1039,7 +1027,6 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 
 	logger.Info("Offer registered, waiting for answer", "session_id", sessionID)
 
-	// Wait for answer
 	answerData, err := signaling.WaitForAnswer(ctx, sessionID)
 	if err != nil {
 		logger.Error("Failed to get answer", "error", err)
@@ -1048,7 +1035,6 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 		os.Exit(1)
 	}
 
-	// Accept the answer
 	if err := conn.AcceptAnswer(answerData); err != nil {
 		logger.Error("Failed to accept answer", "error", err)
 		signaling.Cleanup(ctx, sessionID)
@@ -1058,7 +1044,6 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 
 	logger.Info("WebRTC connection established, receiving file", "session_id", sessionID)
 
-	// Create file transfer protocol
 	ftp := p2p.NewFileTransferProtocol(conn, logger)
 
 	// Receive file and save to specified output file
@@ -1069,8 +1054,8 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 		os.Exit(1)
 	}
 
-	// Cleanup signaling data
 	signaling.Cleanup(ctx, sessionID)
+	conn.Close()
 
 	color.HiGreen("File received successfully")
 }
@@ -1079,14 +1064,12 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 	ctx := context.Background()
 	cacheController := core.GetCacheController[string](f, "")
 
-	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		logger.Error("File does not exist", "file", filePath)
 		fmt.Fprintf(os.Stderr, "%s File does not exist: %s\n", color.RedString("Error:"), filePath)
 		os.Exit(1)
 	}
 
-	// Create cache signaling client
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
 		Logger:          logger,
@@ -1098,7 +1081,6 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 
 	logger.Info("Waiting for P2P offer", "session_id", sessionID, "file", filePath)
 
-	// Wait for offer
 	offerData, err := signaling.WaitForOffer(ctx, sessionID)
 	if err != nil {
 		logger.Error("Failed to get offer", "error", err)
@@ -1106,7 +1088,6 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 		os.Exit(1)
 	}
 
-	// Create WebRTC answer
 	conn, answerData, err := p2p.Answer(logger.With("role", "sender"), offerData)
 	if err != nil {
 		logger.Error("Failed to create WebRTC answer", "error", err)
@@ -1115,7 +1096,6 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 		os.Exit(1)
 	}
 
-	// Send answer
 	if err := signaling.SendAnswer(ctx, sessionID, answerData); err != nil {
 		logger.Error("Failed to send answer", "error", err)
 		signaling.Cleanup(ctx, sessionID)
@@ -1126,10 +1106,8 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 
 	logger.Info("WebRTC connection established, sending file", "session_id", sessionID)
 
-	// Create file transfer protocol
 	ftp := p2p.NewFileTransferProtocol(conn, logger)
 
-	// Send file
 	if err := ftp.SendFile(filePath); err != nil {
 		logger.Error("Failed to send file", "error", err)
 		signaling.Cleanup(ctx, sessionID)
@@ -1138,7 +1116,8 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 		os.Exit(1)
 	}
 
-	// Cleanup signaling data
+	time.Sleep(100 * time.Millisecond)
+
 	signaling.Cleanup(ctx, sessionID)
 	conn.Close()
 
