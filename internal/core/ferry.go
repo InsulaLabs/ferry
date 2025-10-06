@@ -39,7 +39,7 @@ func New(logger *slog.Logger, cfg *Config) (*Ferry, error) {
 		SkipVerify:             cfg.SkipVerify,
 		Timeout:                cfg.Timeout,
 		Logger:                 logger,
-		EnableLeaderStickiness: true,
+		EnableLeaderStickiness: false,
 	}
 
 	c, err := client.NewClient(clientCfg)

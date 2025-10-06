@@ -1,0 +1,27 @@
+api_key_env: INSI_API_KEY
+endpoints:
+    - api.insulalabs.io:443
+skip_verify: false
+timeout: 30s
+
+stress_test:
+  # Load ramping parameters - slowly ramp up operations for stress testing
+  initial_concurrency: 1           # Start with this many concurrent workers
+  max_concurrency: 50              # Ramp up to this many concurrent workers
+  ramp_up_duration: 5m             # Time to take for ramping up from initial to max
+  ramp_up_steps: 10                # Number of ramp-up steps
+
+  # Test duration
+  test_duration: 10m               # Total duration of the stress test
+
+  # Operation parameters (0 = unlimited)
+  operations_per_second: 0         # Limit operations per second per worker (0 = no limit)
+
+  # Key generation parameters
+  key_prefix: "maxx:stress:"       # Prefix for all generated keys
+  key_range: 1000                  # Number of unique keys to use (rotates through these)
+  value_size: 100                  # Size of generated values in bytes
+  random_values: true              # Generate random values (false = deterministic)
+
+  # Reporting parameters
+  report_interval: 30s             # How often to log progress reports
