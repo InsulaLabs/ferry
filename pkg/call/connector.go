@@ -22,7 +22,7 @@
 		even ones that they initiated, not just received.
 */
 
-package tekp2p
+package call
 
 import (
 	"context"
