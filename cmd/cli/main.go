@@ -14,7 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/InsulaLabs/ferry/internal/core"
+	"github.com/InsulaLabs/ferry/pkg/core"
+	"github.com/InsulaLabs/ferry/pkg/p2p"
 	"github.com/InsulaLabs/insi/db/models"
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
@@ -119,6 +120,8 @@ func main() {
 		handlePing(f, cmdArgs)
 	case "blob":
 		handleBlob(f, cmdArgs)
+	case "p2p":
+		handleP2P(f, cmdArgs)
 	default:
 		logger.Error("Unknown command", "command", command)
 		printUsage()
@@ -169,19 +172,16 @@ func loadConfig() (*FerryConfig, error) {
 		}
 	}
 
-	// Read config file
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", configPath, err)
 	}
 
-	// Parse YAML
 	var cfg FerryConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", configPath, err)
 	}
 
-	// Set defaults
 	if cfg.ApiKeyEnv == "" {
 		cfg.ApiKeyEnv = "INSI_API_KEY"
 	}
@@ -282,6 +282,14 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s %s\n", color.GreenString("blob"), color.CyanString("iterate"), color.CyanString("<prefix>"), color.CyanString("[offset]"), color.CyanString("[limit]"))
 	fmt.Fprintf(os.Stderr, "    List blob keys matching the given prefix (default: offset=0, limit=100)\n")
 
+	// P2P operations
+	fmt.Fprintf(os.Stderr, "\n%s\n", color.YellowString("P2P File Transfer Operations:"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("p2p"), color.CyanString("receive"), color.CyanString("<session-id>"), color.CyanString("<output-file>"))
+	fmt.Fprintf(os.Stderr, "    Wait for and receive a file transfer with the given session ID, save to output-file\n")
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("p2p"), color.CyanString("send"), color.CyanString("<session-id>"), color.CyanString("<file>"))
+	fmt.Fprintf(os.Stderr, "    Send a file to the receiver waiting with the given session ID\n")
+
 	// Examples
 	fmt.Fprintf(os.Stderr, "\n%s\n", color.CyanString("Examples:"))
 	fmt.Fprintf(os.Stderr, "  # Generate configuration\n")
@@ -311,6 +319,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  ferry blob download document:123 downloaded-report.pdf\n")
 	fmt.Fprintf(os.Stderr, "  ferry blob iterate document: 0 50\n")
 	fmt.Fprintf(os.Stderr, "  \n")
+	fmt.Fprintf(os.Stderr, "  # P2P file transfer\n")
+	fmt.Fprintf(os.Stderr, "  ferry p2p receive mysession123 received-file.zip\n")
+	fmt.Fprintf(os.Stderr, "  ferry p2p send mysession123 myfile.zip\n")
+	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Using custom config\n")
 	fmt.Fprintf(os.Stderr, "  ferry --config prod-ferry.yaml values get mykey\n")
 
@@ -319,6 +331,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  - Cache provides fast volatile storage (data may be evicted)\n")
 	fmt.Fprintf(os.Stderr, "  - Blob storage provides persistent storage for large binary objects\n")
 	fmt.Fprintf(os.Stderr, "  - Events enable real-time pub/sub messaging between clients\n")
+	fmt.Fprintf(os.Stderr, "  - P2P enables direct file transfer between ferry instances using WebRTC\n")
 	fmt.Fprintf(os.Stderr, "  - All operations use the ferry package which provides automatic retries and error handling\n")
 }
 
@@ -688,7 +701,6 @@ func handleEvents(f *core.Ferry, args []string) {
 		topic := subArgs[0]
 		dataStr := subArgs[1]
 
-		// Try to parse as JSON, otherwise use as string
 		var dataToPublish any
 		var jsonData any
 		if err := json.Unmarshal([]byte(dataStr), &jsonData); err == nil {
@@ -714,7 +726,6 @@ func handleEvents(f *core.Ferry, args []string) {
 		}
 		topic := subArgs[0]
 
-		// Setup signal handling
 		sigCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
@@ -727,7 +738,6 @@ func handleEvents(f *core.Ferry, args []string) {
 			cancel()
 		}()
 
-		// Create handler
 		handler := func(event models.EventPayload) {
 			fmt.Printf("[%s] Received event on topic '%s': %+v\n",
 				time.Now().Format("15:04:05"),
@@ -803,7 +813,6 @@ func handleBlob(f *core.Ferry, args []string) {
 		key := subArgs[0]
 		filePath := subArgs[1]
 
-		// Open the file
 		file, err := os.Open(filePath)
 		if err != nil {
 			logger.Error("Failed to open file", "file", filePath, "error", err)
@@ -812,7 +821,6 @@ func handleBlob(f *core.Ferry, args []string) {
 		}
 		defer file.Close()
 
-		// Get file info for the filename
 		fileInfo, err := file.Stat()
 		if err != nil {
 			logger.Error("Failed to stat file", "file", filePath, "error", err)
@@ -950,4 +958,168 @@ func handleBlobIterate(ctx context.Context, bc core.BlobController, args []strin
 	for _, item := range results {
 		fmt.Println(item)
 	}
+}
+
+func handleP2P(f *core.Ferry, args []string) {
+	if len(args) < 1 {
+		logger.Error("p2p: requires <sub-command> [args...]")
+		printUsage()
+		os.Exit(1)
+	}
+
+	subCommand := args[0]
+	subArgs := args[1:]
+
+	switch subCommand {
+	case "receive":
+		if len(subArgs) != 2 {
+			logger.Error("p2p receive: requires <session-id> <output-file>")
+			printUsage()
+			os.Exit(1)
+		}
+		sessionID := subArgs[0]
+		outputFile := subArgs[1]
+		handleP2PReceive(f, sessionID, outputFile)
+
+	case "send":
+		if len(subArgs) != 2 {
+			logger.Error("p2p send: requires <session-id> <file>")
+			printUsage()
+			os.Exit(1)
+		}
+		sessionID := subArgs[0]
+		filePath := subArgs[1]
+		handleP2PSend(f, sessionID, filePath)
+
+	default:
+		logger.Error("p2p: unknown sub-command", "sub_command", subCommand)
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
+	ctx := context.Background()
+	cacheController := core.GetCacheController[string](f, "")
+
+	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
+		CacheController: cacheController,
+		Logger:          logger,
+	})
+
+	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
+	signaling.Cleanup(ctx, sessionID)
+
+	logger.Info("Waiting for P2P connection", "session_id", sessionID)
+
+	conn, offerData, err := p2p.Offer(logger.With("role", "receiver"))
+	if err != nil {
+		logger.Error("Failed to create WebRTC offer", "error", err)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	if err := signaling.RegisterOffer(ctx, sessionID, offerData); err != nil {
+		logger.Error("Failed to register offer", "error", err)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	logger.Info("Offer registered, waiting for answer", "session_id", sessionID)
+
+	answerData, err := signaling.WaitForAnswer(ctx, sessionID)
+	if err != nil {
+		logger.Error("Failed to get answer", "error", err)
+		signaling.Cleanup(ctx, sessionID) // Cleanup on error
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	if err := conn.AcceptAnswer(answerData); err != nil {
+		logger.Error("Failed to accept answer", "error", err)
+		signaling.Cleanup(ctx, sessionID)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	logger.Info("WebRTC connection established, receiving file", "session_id", sessionID)
+
+	ftp := p2p.NewFileTransferProtocol(conn, logger)
+
+	// Receive file and save to specified output file
+	if err := ftp.ReceiveFile(outputFile); err != nil {
+		logger.Error("Failed to receive file", "error", err)
+		signaling.Cleanup(ctx, sessionID)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	signaling.Cleanup(ctx, sessionID)
+	conn.Close()
+
+	color.HiGreen("File received successfully")
+}
+
+func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
+	ctx := context.Background()
+	cacheController := core.GetCacheController[string](f, "")
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		logger.Error("File does not exist", "file", filePath)
+		fmt.Fprintf(os.Stderr, "%s File does not exist: %s\n", color.RedString("Error:"), filePath)
+		os.Exit(1)
+	}
+
+	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
+		CacheController: cacheController,
+		Logger:          logger,
+	})
+
+	// Clean up any stale signaling data for this session
+	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
+	signaling.Cleanup(ctx, sessionID)
+
+	logger.Info("Waiting for P2P offer", "session_id", sessionID, "file", filePath)
+
+	offerData, err := signaling.WaitForOffer(ctx, sessionID)
+	if err != nil {
+		logger.Error("Failed to get offer", "error", err)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	conn, answerData, err := p2p.Answer(logger.With("role", "sender"), offerData)
+	if err != nil {
+		logger.Error("Failed to create WebRTC answer", "error", err)
+		signaling.Cleanup(ctx, sessionID)
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	if err := signaling.SendAnswer(ctx, sessionID, answerData); err != nil {
+		logger.Error("Failed to send answer", "error", err)
+		signaling.Cleanup(ctx, sessionID)
+		conn.Close()
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	logger.Info("WebRTC connection established, sending file", "session_id", sessionID)
+
+	ftp := p2p.NewFileTransferProtocol(conn, logger)
+
+	if err := ftp.SendFile(filePath); err != nil {
+		logger.Error("Failed to send file", "error", err)
+		signaling.Cleanup(ctx, sessionID)
+		conn.Close()
+		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	signaling.Cleanup(ctx, sessionID)
+	conn.Close()
+
+	color.HiGreen("File sent successfully")
 }
