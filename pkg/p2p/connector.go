@@ -118,10 +118,24 @@ func (c *Conn) Write(b []byte) (n int, err error) {
 func (c *Conn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
-		close(c.shutdownChan)
-		if c.dataChannel != nil {
-			c.dataChannel.Close()
+		select {
+		case <-c.dcReady:
+			if c.dataChannel != nil {
+				for {
+					buffered := c.dataChannel.BufferedAmount()
+					if buffered == 0 {
+						c.logger.Info("Data channel buffer drained")
+						break
+					}
+					c.logger.Debug("Waiting for buffer to drain before close", "buffered", buffered)
+					time.Sleep(50 * time.Millisecond)
+				}
+				c.dataChannel.Close()
+			}
+		default:
 		}
+
+		close(c.shutdownChan)
 		err = c.peerConn.Close()
 	})
 	return err

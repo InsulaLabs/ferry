@@ -139,9 +139,11 @@ func runReceiver(ctx context.Context, f *core.Ferry, sessionID, localAddr string
 	logger.Info("Starting portal receiver", "session_id", sessionID, "local_addr", localAddr)
 
 	cacheController := core.GetCacheController[string](f, "")
+	events := core.GetEvents(f)
 
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
+		Events:          events,
 		Logger:          logger,
 	})
 
@@ -196,9 +198,11 @@ func runSender(ctx context.Context, f *core.Ferry, sessionID, localAddr string, 
 	logger.Info("Starting portal sender", "session_id", sessionID, "local_addr", localAddr)
 
 	cacheController := core.GetCacheController[string](f, "")
+	events := core.GetEvents(f)
 
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
+		Events:          events,
 		Logger:          logger,
 	})
 
