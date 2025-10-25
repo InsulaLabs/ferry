@@ -1001,9 +1001,11 @@ func handleP2P(f *core.Ferry, args []string) {
 func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 	ctx := context.Background()
 	cacheController := core.GetCacheController[string](f, "")
+	events := core.GetEvents(f)
 
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
+		Events:          events,
 		Logger:          logger,
 	})
 
@@ -1063,6 +1065,7 @@ func handleP2PReceive(f *core.Ferry, sessionID, outputFile string) {
 func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 	ctx := context.Background()
 	cacheController := core.GetCacheController[string](f, "")
+	events := core.GetEvents(f)
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		logger.Error("File does not exist", "file", filePath)
@@ -1072,10 +1075,10 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 
 	signaling := p2p.NewCacheSignalingClient(p2p.CacheSignalingConfig{
 		CacheController: cacheController,
+		Events:          events,
 		Logger:          logger,
 	})
 
-	// Clean up any stale signaling data for this session
 	logger.Info("Cleaning up any stale session data", "session_id", sessionID)
 	signaling.Cleanup(ctx, sessionID)
 
@@ -1115,8 +1118,6 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 		fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("Error:"), err)
 		os.Exit(1)
 	}
-
-	time.Sleep(100 * time.Millisecond)
 
 	signaling.Cleanup(ctx, sessionID)
 	conn.Close()

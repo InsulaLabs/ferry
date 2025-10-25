@@ -144,6 +144,23 @@ func (ftp *FileTransferProtocol) ReceiveFile(outputPath string) error {
 		buffer := make([]byte, ChunkSize*2)
 		n, err := ftp.conn.Read(buffer)
 		if err != nil {
+			if err == io.EOF {
+				if metadata != nil && receivedSize == metadata.Size {
+					if hasher != nil {
+						receivedHash := hex.EncodeToString(hasher.Sum(nil))
+						if receivedHash != metadata.Hash {
+							return fmt.Errorf("file hash verification failed: expected %s, got %s", metadata.Hash, receivedHash)
+						}
+						ftp.logger.Info("File hash verified", "hash", receivedHash[:16]+"...")
+					}
+					ftp.logger.Info("Connection closed after receiving complete file", "received", receivedSize)
+					return nil
+				}
+				if metadata != nil {
+					return fmt.Errorf("connection closed unexpectedly: received %d of %d bytes", receivedSize, metadata.Size)
+				}
+				return fmt.Errorf("connection closed before receiving metadata")
+			}
 			return fmt.Errorf("failed to read from connection: %w", err)
 		}
 
