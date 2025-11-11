@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,6 +23,7 @@ import (
 	"github.com/InsulaLabs/insi/db/models"
 	"github.com/fatih/color"
 	"gopkg.in/yaml.v3"
+	_ "modernc.org/sqlite"
 )
 
 type FerryConfig struct {
@@ -30,13 +35,13 @@ type FerryConfig struct {
 }
 
 var (
-	logger       *slog.Logger
-	configPath   string
-	generateFlag string
+	logger          *slog.Logger
+	configPath      string
+	generateFlag    string
+	skipOnErrorFlag bool
 )
 
 func init() {
-	// Initialize logger
 	logOpts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}
@@ -45,6 +50,7 @@ func init() {
 
 	flag.StringVar(&configPath, "config", "", "Path to the ferry configuration file (defaults to ferry.yaml, then FERRY_CONFIG env)")
 	flag.StringVar(&generateFlag, "generate", "", "Generate config from comma-separated endpoints")
+	flag.BoolVar(&skipOnErrorFlag, "skip-on-error", false, "Continue without prompting on individual key failures during snapshot")
 }
 
 func main() {
@@ -122,6 +128,8 @@ func main() {
 		handleBlob(f, cmdArgs)
 	case "p2p":
 		handleP2P(f, cmdArgs)
+	case "snapshot":
+		handleSnapshot(f, cmdArgs)
 	default:
 		logger.Error("Unknown command", "command", command)
 		printUsage()
@@ -290,6 +298,22 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n", color.GreenString("p2p"), color.CyanString("send"), color.CyanString("<session-id>"), color.CyanString("<file>"))
 	fmt.Fprintf(os.Stderr, "    Send a file to the receiver waiting with the given session ID\n")
 
+	fmt.Fprintf(os.Stderr, "\n%s\n", color.YellowString("Snapshot Operations:"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.GreenString("snapshot"), color.CyanString("values"), color.CyanString("<name>"))
+	fmt.Fprintf(os.Stderr, "    Create a snapshot of all values to <name>/values.db (SQLite database)\n")
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.GreenString("snapshot"), color.CyanString("cache"), color.CyanString("<name>"))
+	fmt.Fprintf(os.Stderr, "    Create a snapshot of all cache entries to <name>/cache.db (SQLite database)\n")
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.GreenString("snapshot"), color.CyanString("blob"), color.CyanString("<name>"))
+	fmt.Fprintf(os.Stderr, "    Create a snapshot of all blobs to <name>/blobs/ directory\n")
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.GreenString("snapshot"), color.CyanString("full"), color.CyanString("<name>"))
+	fmt.Fprintf(os.Stderr, "    Create a complete snapshot of values, cache, and blobs to <name>/ directory\n")
+
+	fmt.Fprintf(os.Stderr, "\n  %s\n", color.MagentaString("Snapshot Flags:"))
+	fmt.Fprintf(os.Stderr, "    %s    Continue without prompting when individual keys fail to fetch\n", color.CyanString("--skip-on-error"))
+
 	// Examples
 	fmt.Fprintf(os.Stderr, "\n%s\n", color.CyanString("Examples:"))
 	fmt.Fprintf(os.Stderr, "  # Generate configuration\n")
@@ -323,6 +347,13 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  ferry p2p receive mysession123 received-file.zip\n")
 	fmt.Fprintf(os.Stderr, "  ferry p2p send mysession123 myfile.zip\n")
 	fmt.Fprintf(os.Stderr, "  \n")
+	fmt.Fprintf(os.Stderr, "  # Snapshot operations\n")
+	fmt.Fprintf(os.Stderr, "  ferry snapshot values mybackup\n")
+	fmt.Fprintf(os.Stderr, "  ferry snapshot cache cache-snapshot-2024\n")
+	fmt.Fprintf(os.Stderr, "  ferry snapshot blob blob-backup\n")
+	fmt.Fprintf(os.Stderr, "  ferry snapshot full full-backup-2024-01-15\n")
+	fmt.Fprintf(os.Stderr, "  ferry --skip-on-error snapshot full production-snapshot\n")
+	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Using custom config\n")
 	fmt.Fprintf(os.Stderr, "  ferry --config prod-ferry.yaml values get mykey\n")
 
@@ -332,6 +363,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  - Blob storage provides persistent storage for large binary objects\n")
 	fmt.Fprintf(os.Stderr, "  - Events enable real-time pub/sub messaging between clients\n")
 	fmt.Fprintf(os.Stderr, "  - P2P enables direct file transfer between ferry instances using WebRTC\n")
+	fmt.Fprintf(os.Stderr, "  - Snapshots create local copies of remote data in SQLite databases and filesystem\n")
 	fmt.Fprintf(os.Stderr, "  - All operations use the ferry package which provides automatic retries and error handling\n")
 }
 
@@ -519,7 +551,11 @@ func handleValuesIterate(ctx context.Context, vc core.ValueController[string], a
 		os.Exit(1)
 	}
 	for _, item := range results {
-		fmt.Println(item)
+		decoded, err := url.QueryUnescape(item)
+		if err != nil {
+			decoded = item
+		}
+		fmt.Println(decoded)
 	}
 }
 
@@ -674,7 +710,11 @@ func handleCacheIterate(ctx context.Context, cc core.CacheController[string], ar
 		os.Exit(1)
 	}
 	for _, item := range results {
-		fmt.Println(item)
+		decoded, err := url.QueryUnescape(item)
+		if err != nil {
+			decoded = item
+		}
+		fmt.Println(decoded)
 	}
 }
 
@@ -956,7 +996,11 @@ func handleBlobIterate(ctx context.Context, bc core.BlobController, args []strin
 		os.Exit(1)
 	}
 	for _, item := range results {
-		fmt.Println(item)
+		decoded, err := url.QueryUnescape(item)
+		if err != nil {
+			decoded = item
+		}
+		fmt.Println(decoded)
 	}
 }
 
@@ -1123,4 +1167,399 @@ func handleP2PSend(f *core.Ferry, sessionID, filePath string) {
 	conn.Close()
 
 	color.HiGreen("File sent successfully")
+}
+
+func createSQLiteDB(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	createTableSQL := `
+	CREATE TABLE IF NOT EXISTS kv (
+		key TEXT PRIMARY KEY,
+		value BLOB
+	);`
+
+	if _, err := db.Exec(createTableSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return db, nil
+}
+
+func insertKV(db *sql.DB, key, value string) error {
+	stmt, err := db.Prepare("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	if _, err := stmt.Exec(key, value); err != nil {
+		return fmt.Errorf("failed to insert key-value: %w", err)
+	}
+
+	return nil
+}
+
+func safeBlobPath(key, blobsDir string) (string, bool) {
+	cleanKey := filepath.Clean(key)
+
+	if strings.Contains(cleanKey, "..") {
+		return filepath.Join(blobsDir, strings.ReplaceAll(key, "/", "_")), false
+	}
+
+	if filepath.IsAbs(cleanKey) {
+		cleanKey = strings.TrimPrefix(cleanKey, "/")
+	}
+
+	fullPath := filepath.Join(blobsDir, cleanKey)
+
+	absFullPath, err := filepath.Abs(fullPath)
+	if err != nil {
+		return filepath.Join(blobsDir, strings.ReplaceAll(key, "/", "_")), false
+	}
+
+	absBlobsDir, err := filepath.Abs(blobsDir)
+	if err != nil {
+		return filepath.Join(blobsDir, strings.ReplaceAll(key, "/", "_")), false
+	}
+
+	if !strings.HasPrefix(absFullPath, absBlobsDir+string(filepath.Separator)) {
+		return filepath.Join(blobsDir, strings.ReplaceAll(key, "/", "_")), false
+	}
+
+	return fullPath, true
+}
+
+func promptContinue(message string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Fprintf(os.Stderr, "%s %s [y/N]: ", color.YellowString("⚠"), message)
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	input = strings.TrimSpace(strings.ToLower(input))
+	return input == "y" || input == "yes"
+}
+
+func handleSnapshot(f *core.Ferry, args []string) {
+	if len(args) < 2 {
+		logger.Error("snapshot: requires <type> <name>")
+		printUsage()
+		os.Exit(1)
+	}
+
+	snapshotType := args[0]
+	snapshotName := args[1]
+
+	if _, err := os.Stat(snapshotName); err == nil {
+		logger.Error("Snapshot directory already exists", "directory", snapshotName)
+		fmt.Fprintf(os.Stderr, "%s Snapshot directory '%s' already exists\n", color.RedString("Error:"), snapshotName)
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(snapshotName, 0755); err != nil {
+		logger.Error("Failed to create snapshot directory", "directory", snapshotName, "error", err)
+		fmt.Fprintf(os.Stderr, "%s Failed to create directory: %v\n", color.RedString("Error:"), err)
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	switch snapshotType {
+	case "values":
+		if err := snapshotValues(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Values snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "cache":
+		if err := snapshotCache(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Cache snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "blob":
+		if err := snapshotBlobs(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Blob snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "full":
+		if err := snapshotValues(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Values snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+		if err := snapshotCache(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Cache snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+		if err := snapshotBlobs(ctx, f, snapshotName, skipOnErrorFlag); err != nil {
+			logger.Error("Blob snapshot failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	default:
+		logger.Error("Invalid snapshot type", "type", snapshotType)
+		fmt.Fprintf(os.Stderr, "%s Invalid snapshot type '%s'. Must be one of: values, cache, blob, full\n", color.RedString("Error:"), snapshotType)
+		os.Exit(1)
+	}
+
+	color.HiGreen("✓ Snapshot complete: %s", snapshotName)
+}
+
+func snapshotValues(ctx context.Context, f *core.Ferry, dir string, skipOnError bool) error {
+	color.HiCyan("Starting values snapshot...")
+
+	dbPath := filepath.Join(dir, "values.db")
+	db, err := createSQLiteDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to create values database: %w", err)
+	}
+	defer db.Close()
+
+	vc := core.GetValueController[string](f, "")
+
+	offset := 0
+	limit := 100
+	totalKeys := 0
+
+	for {
+		keys, err := vc.IterateByPrefix(ctx, "*", offset, limit)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate values: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			value, err := vc.Get(ctx, key)
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to fetch value for key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			if err := insertKV(db, key, string(value)); err != nil {
+				errMsg := fmt.Sprintf("Failed to save value for key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			totalKeys++
+		}
+
+		color.Cyan("Snapshotted %d values...", totalKeys)
+
+		if len(keys) < limit {
+			break
+		}
+
+		offset += limit
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	color.HiGreen("✓ Values snapshot complete: %d keys", totalKeys)
+	return nil
+}
+
+func snapshotCache(ctx context.Context, f *core.Ferry, dir string, skipOnError bool) error {
+	color.HiCyan("Starting cache snapshot...")
+
+	dbPath := filepath.Join(dir, "cache.db")
+	db, err := createSQLiteDB(dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to create cache database: %w", err)
+	}
+	defer db.Close()
+
+	cc := core.GetCacheController[string](f, "")
+
+	offset := 0
+	limit := 100
+	totalKeys := 0
+
+	for {
+		keys, err := cc.IterateByPrefix(ctx, "*", offset, limit)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate cache: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			value, err := cc.Get(ctx, key)
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to fetch cache value for key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			if err := insertKV(db, key, string(value)); err != nil {
+				errMsg := fmt.Sprintf("Failed to save cache value for key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			totalKeys++
+		}
+
+		color.Cyan("Snapshotted %d cache entries...", totalKeys)
+
+		if len(keys) < limit {
+			break
+		}
+
+		offset += limit
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	color.HiGreen("✓ Cache snapshot complete: %d keys", totalKeys)
+	return nil
+}
+
+func snapshotBlobs(ctx context.Context, f *core.Ferry, dir string, skipOnError bool) error {
+	color.HiCyan("Starting blob snapshot...")
+
+	blobsDir := filepath.Join(dir, "blobs")
+	if err := os.MkdirAll(blobsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create blobs directory: %w", err)
+	}
+
+	bc := core.GetBlobController(f)
+
+	offset := 0
+	limit := 100
+	totalKeys := 0
+
+	for {
+		keys, err := bc.IterateByPrefix(ctx, "*", offset, limit)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate blobs: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			blobPath, safe := safeBlobPath(key, blobsDir)
+			if !safe {
+				color.Yellow("⚠ Unsafe blob path for key '%s', flattening to: %s", key, filepath.Base(blobPath))
+			}
+
+			blobDir := filepath.Dir(blobPath)
+			if err := os.MkdirAll(blobDir, 0755); err != nil {
+				errMsg := fmt.Sprintf("Failed to create directory for blob key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			reader, err := bc.Download(ctx, key)
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to download blob for key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			file, err := os.Create(blobPath)
+			if err != nil {
+				reader.Close()
+				errMsg := fmt.Sprintf("Failed to create file for blob key '%s': %v", key, err)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			_, copyErr := io.Copy(file, reader)
+			file.Close()
+			reader.Close()
+
+			if copyErr != nil {
+				errMsg := fmt.Sprintf("Failed to write blob for key '%s': %v", key, copyErr)
+				color.Yellow("⚠ %s", errMsg)
+
+				if !skipOnError {
+					if !promptContinue("Continue with snapshot?") {
+						return fmt.Errorf("snapshot aborted by user")
+					}
+				}
+				continue
+			}
+
+			totalKeys++
+		}
+
+		color.Cyan("Snapshotted %d blobs...", totalKeys)
+
+		if len(keys) < limit {
+			break
+		}
+
+		offset += limit
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	color.HiGreen("✓ Blob snapshot complete: %d keys", totalKeys)
+	return nil
 }
