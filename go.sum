@@ -1,5 +1,7 @@
 github.com/InsulaLabs/insi v0.0.0-20250812222516-04a045a953f3 h1:Wu+VQSWDRLC7DzQ4NwNCgAMs0YNo+e8tAbEwPcE6SxY=
 github.com/InsulaLabs/insi v0.0.0-20250812222516-04a045a953f3/go.mod h1:jsD4+sLjLbje34wCeXRMMJIhIR3peMjyIUiTS2RZ0Zo=
+github.com/InsulaLabs/insi v0.0.0-20251020190721-69a196436bb2 h1:hPjNW01MzO+6/gQMemVr/as4NxT+8nYZ0J9RiujkG80=
+github.com/InsulaLabs/insi v0.0.0-20251020190721-69a196436bb2/go.mod h1:sZ0RFa6p03HX4WIpphfxGoFAWyniiunsLWwm4QIM/LI=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

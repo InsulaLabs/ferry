@@ -71,6 +71,10 @@ func (f *Ferry) Ping(attempts int, cooldown time.Duration) error {
 		lastErr)
 }
 
+func (f *Ferry) GetClient() *client.Client {
+	return f.client
+}
+
 func GetValueController[T ~string](f *Ferry, defaultT T) ValueController[T] {
 	return NewValueController(defaultT, f.client, f.logger)
 }
