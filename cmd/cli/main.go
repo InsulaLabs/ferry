@@ -2396,20 +2396,7 @@ func handleRecordsDeleteGroup(f *core.Ferry, args []string) {
 	prefix := args[0]
 	ctx := context.Background()
 
-	cacheDuration := 5 * time.Minute
-	cleanupInterval := 1 * time.Second
-	cleanupJitter := 100 * time.Millisecond
-
-	rc := records.NewRecordController(
-		ctx,
-		prefix,
-		cacheDuration,
-		cleanupInterval,
-		cleanupJitter,
-		logger.WithGroup("records"),
-		f.GetClient(),
-	)
-	rc.Start()
+	rc := createRecordController(ctx, prefix, f)
 	defer rc.Stop()
 
 	if !confirmFlag {
