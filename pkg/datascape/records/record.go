@@ -701,11 +701,14 @@ func (r *recordControllerImpl) tombstoneCleanupWorker() {
 		}
 		interval := r.cleanupInterval + jitter
 
+		timer := time.NewTimer(interval)
+
 		select {
 		case <-r.stopChan:
+			timer.Stop()
 			r.logger.Info("tombstone cleanup worker stopping", "prefix", r.prefix)
 			return
-		case <-time.After(interval):
+		case <-timer.C:
 			r.processTombstones()
 		}
 	}
@@ -725,13 +728,6 @@ func (r *recordControllerImpl) processTombstones() {
 	r.logger.Debug("processing tombstones", "count", len(tombstones))
 
 	for _, recordUUID := range tombstones {
-		select {
-		case <-r.stopChan:
-			r.logger.Info("tombstone processing interrupted by stop signal")
-			return
-		default:
-		}
-
 		err := r.CleanupDeletedRecord(recordUUID)
 		if err != nil {
 			r.logger.Warn("failed to cleanup tombstoned record", "record", recordUUID, "error", err)
@@ -748,5 +744,9 @@ func (r *recordControllerImpl) Start() {
 func (r *recordControllerImpl) Stop() {
 	close(r.stopChan)
 	<-r.stoppedChan
+
+	r.logger.Info("running final tombstone cleanup", "prefix", r.prefix)
+	r.processTombstones()
+
 	r.logger.Info("tombstone cleanup worker stopped", "prefix", r.prefix)
 }
