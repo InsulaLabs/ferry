@@ -39,6 +39,7 @@ var (
 	configPath      string
 	generateFlag    string
 	skipOnErrorFlag bool
+	confirmFlag     bool
 )
 
 func init() {
@@ -51,6 +52,7 @@ func init() {
 	flag.StringVar(&configPath, "config", "", "Path to the ferry configuration file (defaults to ferry.yaml, then FERRY_CONFIG env)")
 	flag.StringVar(&generateFlag, "generate", "", "Generate config from comma-separated endpoints")
 	flag.BoolVar(&skipOnErrorFlag, "skip-on-error", false, "Continue without prompting on individual key failures during snapshot")
+	flag.BoolVar(&confirmFlag, "confirm", false, "Skip all confirmation prompts (for destructive operations like scrub)")
 }
 
 func main() {
@@ -130,6 +132,8 @@ func main() {
 		handleP2P(f, cmdArgs)
 	case "snapshot":
 		handleSnapshot(f, cmdArgs)
+	case "scrub":
+		handleScrub(f, cmdArgs)
 	default:
 		logger.Error("Unknown command", "command", command)
 		printUsage()
@@ -314,6 +318,22 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "\n  %s\n", color.MagentaString("Snapshot Flags:"))
 	fmt.Fprintf(os.Stderr, "    %s    Continue without prompting when individual keys fail to fetch\n", color.CyanString("--skip-on-error"))
 
+	fmt.Fprintf(os.Stderr, "\n%s\n", color.YellowString("Scrub Operations (DESTRUCTIVE):"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.RedString("scrub"), color.CyanString("values"), color.CyanString("[--confirm]"))
+	fmt.Fprintf(os.Stderr, "    %s Delete ALL values from the remote database\n", color.RedString("⚠"))
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.RedString("scrub"), color.CyanString("cache"), color.CyanString("[--confirm]"))
+	fmt.Fprintf(os.Stderr, "    %s Delete ALL cache entries from the remote database\n", color.RedString("⚠"))
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.RedString("scrub"), color.CyanString("blob"), color.CyanString("[--confirm]"))
+	fmt.Fprintf(os.Stderr, "    %s Delete ALL blobs from the remote database\n", color.RedString("⚠"))
+
+	fmt.Fprintf(os.Stderr, "  %s %s %s\n", color.RedString("scrub"), color.CyanString("full"), color.CyanString("[--confirm]"))
+	fmt.Fprintf(os.Stderr, "    %s Delete ALL values, cache, and blobs from the remote database\n", color.RedString("⚠"))
+
+	fmt.Fprintf(os.Stderr, "\n  %s\n", color.MagentaString("Scrub Flags:"))
+	fmt.Fprintf(os.Stderr, "    %s          Skip all confirmation prompts (use with extreme caution!)\n", color.CyanString("--confirm"))
+
 	// Examples
 	fmt.Fprintf(os.Stderr, "\n%s\n", color.CyanString("Examples:"))
 	fmt.Fprintf(os.Stderr, "  # Generate configuration\n")
@@ -354,6 +374,12 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  ferry snapshot full full-backup-2024-01-15\n")
 	fmt.Fprintf(os.Stderr, "  ferry --skip-on-error snapshot full production-snapshot\n")
 	fmt.Fprintf(os.Stderr, "  \n")
+	fmt.Fprintf(os.Stderr, "  # Scrub operations (DESTRUCTIVE - requires confirmation)\n")
+	fmt.Fprintf(os.Stderr, "  ferry scrub values              # Prompts for confirmation\n")
+	fmt.Fprintf(os.Stderr, "  ferry scrub cache               # Prompts for confirmation\n")
+	fmt.Fprintf(os.Stderr, "  ferry scrub blob                # Prompts for confirmation\n")
+	fmt.Fprintf(os.Stderr, "  ferry --confirm scrub full      # No prompts, deletes everything!\n")
+	fmt.Fprintf(os.Stderr, "  \n")
 	fmt.Fprintf(os.Stderr, "  # Using custom config\n")
 	fmt.Fprintf(os.Stderr, "  ferry --config prod-ferry.yaml values get mykey\n")
 
@@ -364,6 +390,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  - Events enable real-time pub/sub messaging between clients\n")
 	fmt.Fprintf(os.Stderr, "  - P2P enables direct file transfer between ferry instances using WebRTC\n")
 	fmt.Fprintf(os.Stderr, "  - Snapshots create local copies of remote data in SQLite databases and filesystem\n")
+	fmt.Fprintf(os.Stderr, "  - %s Scrub operations are DESTRUCTIVE and PERMANENT - use with extreme caution!\n", color.RedString("⚠"))
 	fmt.Fprintf(os.Stderr, "  - All operations use the ferry package which provides automatic retries and error handling\n")
 }
 
@@ -1561,5 +1588,240 @@ func snapshotBlobs(ctx context.Context, f *core.Ferry, dir string, skipOnError b
 	}
 
 	color.HiGreen("✓ Blob snapshot complete: %d keys", totalKeys)
+	return nil
+}
+
+func promptConfirmScrub(category string, approxCount int) bool {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Fprintf(os.Stderr, "\n%s %s\n", color.RedString("⚠ WARNING:"), color.HiYellowString("You are about to delete ALL %s from the remote database.", category))
+	if approxCount > 0 {
+		fmt.Fprintf(os.Stderr, "%s Found approximately %s to delete.\n", color.RedString("⚠"), color.HiRedString("%d keys", approxCount))
+	}
+	fmt.Fprintf(os.Stderr, "%s %s\n", color.RedString("⚠"), color.YellowString("This operation cannot be undone!"))
+	fmt.Fprintf(os.Stderr, "\nType '%s' to proceed: ", color.HiCyanString("yes"))
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	input = strings.TrimSpace(input)
+	return input == "yes"
+}
+
+func handleScrub(f *core.Ferry, args []string) {
+	if len(args) < 1 {
+		logger.Error("scrub: requires <type>")
+		printUsage()
+		os.Exit(1)
+	}
+
+	scrubType := args[0]
+	ctx := context.Background()
+
+	switch scrubType {
+	case "values":
+		if err := scrubValues(ctx, f, confirmFlag); err != nil {
+			logger.Error("Values scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "cache":
+		if err := scrubCache(ctx, f, confirmFlag); err != nil {
+			logger.Error("Cache scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "blob":
+		if err := scrubBlobs(ctx, f, confirmFlag); err != nil {
+			logger.Error("Blob scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	case "full":
+		if err := scrubValues(ctx, f, confirmFlag); err != nil {
+			logger.Error("Values scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+		if err := scrubCache(ctx, f, confirmFlag); err != nil {
+			logger.Error("Cache scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+		if err := scrubBlobs(ctx, f, confirmFlag); err != nil {
+			logger.Error("Blob scrub failed", "error", err)
+			fmt.Fprintf(os.Stderr, "%s %v\n", color.RedString("Error:"), err)
+			os.Exit(1)
+		}
+	default:
+		logger.Error("Invalid scrub type", "type", scrubType)
+		fmt.Fprintf(os.Stderr, "%s Invalid scrub type '%s'. Must be one of: values, cache, blob, full\n", color.RedString("Error:"), scrubType)
+		os.Exit(1)
+	}
+
+	color.HiGreen("✓ Scrub complete")
+}
+
+func scrubValues(ctx context.Context, f *core.Ferry, confirm bool) error {
+	vc := core.GetValueController[string](f, "")
+
+	if !confirm {
+		keys, err := vc.IterateByPrefix(ctx, "*", 0, 100)
+		approxCount := 0
+		if err == nil {
+			approxCount = len(keys)
+		}
+
+		if !promptConfirmScrub("values", approxCount) {
+			color.Yellow("Values scrub cancelled by user")
+			return fmt.Errorf("operation cancelled by user")
+		}
+	}
+
+	color.HiCyan("Starting values scrub...")
+
+	totalDeleted := 0
+	failedKeys := 0
+
+	for {
+		keys, err := vc.IterateByPrefix(ctx, "*", 0, 100)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate values: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			if err := vc.Delete(ctx, key); err != nil {
+				color.Yellow("⚠ Failed to delete key '%s': %v", key, err)
+				failedKeys++
+				continue
+			}
+			totalDeleted++
+		}
+
+		color.Cyan("Deleted %d values...", totalDeleted)
+	}
+
+	if failedKeys > 0 {
+		color.HiYellow("✓ Deleted %d values (%d failed)", totalDeleted, failedKeys)
+	} else {
+		color.HiGreen("✓ Deleted %d total values", totalDeleted)
+	}
+	return nil
+}
+
+func scrubCache(ctx context.Context, f *core.Ferry, confirm bool) error {
+	cc := core.GetCacheController[string](f, "")
+
+	if !confirm {
+		keys, err := cc.IterateByPrefix(ctx, "*", 0, 100)
+		approxCount := 0
+		if err == nil {
+			approxCount = len(keys)
+		}
+
+		if !promptConfirmScrub("cache entries", approxCount) {
+			color.Yellow("Cache scrub cancelled by user")
+			return fmt.Errorf("operation cancelled by user")
+		}
+	}
+
+	color.HiCyan("Starting cache scrub...")
+
+	totalDeleted := 0
+	failedKeys := 0
+
+	for {
+		keys, err := cc.IterateByPrefix(ctx, "*", 0, 100)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate cache: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			if err := cc.Delete(ctx, key); err != nil {
+				color.Yellow("⚠ Failed to delete cache key '%s': %v", key, err)
+				failedKeys++
+				continue
+			}
+			totalDeleted++
+		}
+
+		color.Cyan("Deleted %d cache entries...", totalDeleted)
+	}
+
+	if failedKeys > 0 {
+		color.HiYellow("✓ Deleted %d cache entries (%d failed)", totalDeleted, failedKeys)
+	} else {
+		color.HiGreen("✓ Deleted %d total cache entries", totalDeleted)
+	}
+	return nil
+}
+
+func scrubBlobs(ctx context.Context, f *core.Ferry, confirm bool) error {
+	bc := core.GetBlobController(f)
+
+	if !confirm {
+		keys, err := bc.IterateByPrefix(ctx, "*", 0, 100)
+		approxCount := 0
+		if err == nil {
+			approxCount = len(keys)
+		}
+
+		if !promptConfirmScrub("blobs", approxCount) {
+			color.Yellow("Blob scrub cancelled by user")
+			return fmt.Errorf("operation cancelled by user")
+		}
+	}
+
+	color.HiCyan("Starting blob scrub...")
+
+	totalDeleted := 0
+	failedKeys := 0
+
+	for {
+		keys, err := bc.IterateByPrefix(ctx, "*", 0, 100)
+		if err != nil {
+			if err == core.ErrKeyNotFound {
+				break
+			}
+			return fmt.Errorf("failed to iterate blobs: %w", err)
+		}
+
+		if len(keys) == 0 {
+			break
+		}
+
+		for _, key := range keys {
+			if err := bc.Delete(ctx, key); err != nil {
+				color.Yellow("⚠ Failed to delete blob key '%s': %v", key, err)
+				failedKeys++
+				continue
+			}
+			totalDeleted++
+		}
+
+		color.Cyan("Deleted %d blobs...", totalDeleted)
+	}
+
+	if failedKeys > 0 {
+		color.HiYellow("✓ Deleted %d blobs (%d failed)", totalDeleted, failedKeys)
+	} else {
+		color.HiGreen("✓ Deleted %d total blobs", totalDeleted)
+	}
 	return nil
 }
