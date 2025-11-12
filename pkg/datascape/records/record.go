@@ -19,9 +19,9 @@ import (
 	The benefit to this is that the data will then be able to be modified in a user
 	repl, validated by us, and then re-stored so we dont have to transcode
 
-	prefix:locators:<LOCATOR>:<RECORD_UUID>
-    prefix:records:<RECORD_UUID>:data:<RECORD DATA>
-	prefix:records:<RECORD_UUID>:locator:<LOCATOR> 			// doubly linked for cleanup iteration on keys
+	prefix:locators:<LOCATOR>  →  <RECORD_UUID>
+    prefix:records:<RECORD_UUID>:data  →  <RECORD DATA>
+	prefix:records:<RECORD_UUID>:locator:<LOCATOR>  →  ""
 
 	This allows us to store any given chunk of data and reference it from an arbitrary
 	and managed many->one relations (managed meaning the references are cleand up on deletion)
